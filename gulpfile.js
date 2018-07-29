@@ -16,11 +16,31 @@ var plumber = require("gulp-plumber");
 var sourcemaps = require("gulp-sourcemaps");
 //load in sass plugin
 var sass = require("gulp-sass");
+//load in babel plugin
+var babel = require("gulp-babel");
+//load in del module
+var del = require("del");
+//load in zip module
+var zip = require("gulp-zip");
+
+//Handlebars plugins
+var handlebars = require("gulp-handlebars");
+//handlebars library
+var handlebarsLib = require("handlebars");
+var declare = require("gulp-declare");
+var wrap = require("gulp-wrap");
+
+//Image compression
+var imagemin = require("gulp-imagemin");
+var imageminPngquant = require("imagemin-pngquant");
+var imageminJpegRecompress = require("imagemin-jpeg-recompress");
 
 //file paths
 var DIST_PATH = "public/dist";
 var SCRIPTS_PATH = "public/scripts/**/*.js";
 var CSS_PATH = "public/css/**/*.css";
+var TEMPLATES_PATH = "templates/**/*.hbs";
+var IMAGES_PATH = "public/images/**/*.{png,jpeg,jpg,svg,gif}";
 
 /*
 // Styles for plain CSS
@@ -125,6 +145,12 @@ gulp.task("scripts", () => {
       )
       //kick off sourcemaps process
       .pipe(sourcemaps.init())
+      //babel - pass object presets
+      .pipe(
+        babel({
+          presets: ["es2015"]
+        })
+      )
       //call uglify
       .pipe(uglify())
       //add concat step
@@ -140,16 +166,92 @@ gulp.task("scripts", () => {
 
 // Images
 gulp.task("images", () => {
-  console.log("starting images task");
+  return (
+    gulp
+      .src(IMAGES_PATH)
+      //config to use lossy compression
+      //pass array of plugins you want to use
+      .pipe(
+        imagemin([
+          imagemin.gifsicle(),
+          imagemin.jpegtran(),
+          imagemin.optipng(),
+          imagemin.svgo(),
+          imageminPngquant(),
+          imageminJpegRecompress()
+        ])
+      )
+      .pipe(gulp.dest(DIST_PATH + "/images"))
+  );
+});
+
+// Templates
+gulp.task("templates", () => {
+  console.log("starting templates task");
+  return (
+    gulp
+      .src(TEMPLATES_PATH)
+      //compile with handlebars
+      //set the version of library - handlebars
+      .pipe(
+        handlebars({
+          handlebars: handlebarsLib
+        })
+      )
+      //takes content and wraps inside string
+      //inject output above below
+      .pipe(wrap("Handlebars.template(<%= contents %>)"))
+      //templates variable we can access in JS
+      //add two options
+      //name of variable we declare
+      //noredeclare -prevent gulp from redefining templates if it exists
+      .pipe(
+        declare({
+          namespace: "templates",
+          noRedeclare: true
+        })
+      )
+      //concat templates into one file and save in dist
+      //add concat step
+      .pipe(concat("templates.js"))
+      //put them back into the project to be processed
+      //save into public folder
+      .pipe(gulp.dest(DIST_PATH))
+      .pipe(livereload())
+  );
+});
+
+//clean up dist folder on each run
+gulp.task("clean", () => {
+  //array of files to delete
+  return del.sync([DIST_PATH]);
 });
 
 //default task built into gulp - use this to bootstrap other tasks
-gulp.task("default", () => {
-  console.log("starting default task");
+//array as second arg - array of tasks we want to run before default
+gulp.task(
+  "default",
+  ["clean", "images", "templates", "styles", "scripts"],
+  () => {
+    console.log("starting default task");
+  }
+);
+
+//export zipped project
+gulp.task("export", () => {
+  //grab all public contents
+  return (
+    gulp
+      .src("public/**/*")
+      //name of the file you want to create passed to zip
+      .pipe(zip("website.zip"))
+      //save in root of project
+      .pipe(gulp.dest("./"))
+  );
 });
 
 //watch task - use this to watch for changes
-gulp.task("watch", () => {
+gulp.task("watch", ["default"], () => {
   console.log("starting watch task");
   //run server
   require("./server.js");
@@ -162,4 +264,6 @@ gulp.task("watch", () => {
   //gulp.watch(CSS_PATH, ["styles"]);
   //update for sass
   gulp.watch("public/scss/**/*.scss", ["styles"]);
+  //update for templates
+  gulp.watch(TEMPLATES_PATH, ["templates"]);
 });
